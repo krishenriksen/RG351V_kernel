@@ -120,5 +120,3 @@ all.config
 
 # fetched Android config fragments
 android/configs/android-*.cfg
-
-drivers/gator/generated_gator_src_md5.h

@@ -1086,7 +1086,7 @@ void mmc_set_chip_select(struct mmc_host *host, int mode)
  */
 void mmc_set_clock(struct mmc_host *host, unsigned int hz)
 {
-	//WARN_ON(hz && hz < host->f_min);
+	WARN_ON(hz && hz < host->f_min);
 
 	if (hz > host->f_max)
 		hz = host->f_max;

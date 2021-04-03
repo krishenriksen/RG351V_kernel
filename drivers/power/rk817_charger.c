@@ -34,7 +34,6 @@
 #include <linux/timer.h>
 #include <linux/workqueue.h>
 
-extern int low_battery_percent;
 static int dbg_enable;
 module_param_named(dbg_level, dbg_enable, int, 0644);
 
@@ -68,14 +67,7 @@ module_param_named(dbg_level, dbg_enable, int, 0644);
 #define SAMPLE_RES_DIV1		1
 #define SAMPLE_RES_DIV2		2
 
-//#define CHARGE_CUR
-#define __CLOSE_CHARGE_LED__//关闭充电灯
-#define __BATTERY_LOW__//低电提示
-#if defined(CHARGE_CUR)
-#define INPUT_450MA		3000
-#else
 #define INPUT_450MA		450
-#endif
 #define INPUT_1500MA	1500
 
 #define CURRENT_TO_ADC(current, samp_res)	\
@@ -281,13 +273,9 @@ struct charger_platform_data {
 	u32 dc_det_level;
 	int dc_det_pin;
 	bool support_dc_det;
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGO2)&&!defined(__CLOSE_CHARGE_LED__)
+#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
 	int chg_led_pin;
 	bool chg_led_on;
-#endif
-#ifdef __BATTERY_LOW__
-	int bat_low_pin;
-	bool bat_low_on;
 #endif
 	int virtual_power;
 	int sample_res;
@@ -314,7 +302,7 @@ struct rk817_charger {
 	struct delayed_work host_work;
 	struct delayed_work discnt_work;
 	struct delayed_work irq_work;
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGO2)
+#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
 	struct workqueue_struct *led_wq;
 	struct delayed_work led_work;
 #endif
@@ -662,11 +650,8 @@ static void rk817_charge_set_input_voltage(struct rk817_charger *charge,
 
 	if (input_voltage < 4000)
 		dev_err(charge->dev, "the input voltage is error.\n");
-#if defined(CHARGE_CUR)
-	voltage = INPUT_VOL_4700MV + (input_voltage - 4000) / 100;
-#else
+
 	voltage = INPUT_VOL_4000MV + (input_voltage - 4000) / 100;
-#endif
 
 	rk817_charge_field_write(charge, USB_VLIM_SEL, voltage);
 	rk817_charge_vlimit_enable(charge);
@@ -901,7 +886,7 @@ static irqreturn_t rk817_charge_dc_det_isr(int irq, void *charger)
 	else
 		irq_set_irq_type(irq, IRQF_TRIGGER_HIGH);
 
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGO2)
+#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
 	queue_delayed_work(charge->dc_charger_wq, &charge->dc_work,
 			   msecs_to_jiffies(2000));
 #else
@@ -925,14 +910,13 @@ static enum charger_t rk817_charge_get_dc_state(struct rk817_charger *charge)
 		DC_TYPE_DC_CHARGER : DC_TYPE_NONE_CHARGER;
 }
 
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGO2)
+#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
 static void rk817_charge_led_worker(struct work_struct *work)
 {
 	struct rk817_charger *charge = container_of(work,
 			struct rk817_charger, led_work.work);
 
 	/* battery status check */
-	#ifndef __CLOSE_CHARGE_LED__
 	if (rk817_charge_online(charge)) {
 		if ((rk817_charge_get_dsoc(charge) == 100) &&
 		    (charge->prop_status != POWER_SUPPLY_STATUS_FULL))
@@ -949,36 +933,9 @@ static void rk817_charge_led_worker(struct work_struct *work)
 	else
 		gpio_set_value(charge->pdata->chg_led_pin,
 				!charge->pdata->chg_led_on);
-	#else
-	#ifdef __BATTERY_LOW__
-	if (rk817_charge_online(charge)) {
-		if ((rk817_charge_get_dsoc(charge) == 100) &&
-		    (charge->prop_status != POWER_SUPPLY_STATUS_FULL))
-			queue_delayed_work(charge->dc_charger_wq, &charge->dc_work,
-					msecs_to_jiffies(2000));
-	}
-	//if (rk817_charge_get_dsoc(charge) >= 10)
-	if (low_battery_percent == 0)
-	{
-		if(gpio_get_value(charge->pdata->bat_low_pin)==1)
-		{
-			gpio_set_value(charge->pdata->bat_low_pin,
-					!gpio_get_value(charge->pdata->bat_low_pin));
-		}
-	}
-	else
-	{
-		if(gpio_get_value(charge->pdata->bat_low_pin)==0)
-		{
-			gpio_set_value(charge->pdata->bat_low_pin,
-					charge->pdata->bat_low_on);
-		}
-	}
-	#endif
-	#endif
 
 	queue_delayed_work(charge->led_wq, &charge->led_work,
-		msecs_to_jiffies(1000*60));
+		msecs_to_jiffies(1000));
 }
 #endif
 
@@ -1032,8 +989,7 @@ static int rk817_charge_init_dc(struct rk817_charger *charge)
 		return ret;
 	}
 
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGO2)
-	#ifndef __CLOSE_CHARGE_LED__
+#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
 	if (charge->pdata->chg_led_pin) {
 		ret = devm_gpio_request(charge->dev,
 					charge->pdata->chg_led_pin,
@@ -1045,21 +1001,6 @@ static int rk817_charge_init_dc(struct rk817_charger *charge)
 			gpio_direction_output(charge->pdata->chg_led_pin,
 					     !charge->pdata->chg_led_on);
 	}
-	#else
-	#ifdef __BATTERY_LOW__
-	if (charge->pdata->bat_low_pin) {
-		ret = devm_gpio_request(charge->dev,
-					charge->pdata->bat_low_pin,
-					"rk817_bat_low");
-		if (ret < 0)
-			dev_err(charge->dev, "failed to request gpio %d\n",
-				charge->pdata->bat_low_pin);
-		else
-			gpio_direction_output(charge->pdata->bat_low_pin,
-					     !charge->pdata->bat_low_on);
-	}
-	#endif
-	#endif
 
 	charge->led_wq = alloc_ordered_workqueue("%s",
 				WQ_MEM_RECLAIM | WQ_FREEZABLE,
@@ -1511,8 +1452,7 @@ static int rk817_charge_parse_dt(struct rk817_charger *charge)
 			dev_err(dev, "invalid dc det gpio!\n");
 			return -EINVAL;
 		}
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGO2)
-		#ifndef __CLOSE_CHARGE_LED__
+#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
 		if (!of_find_property(np, "chg_led_gpio", &ret)) {
 			DBG("not support charge led\n");
 			pdata->chg_led_pin = 0;
@@ -1526,23 +1466,6 @@ static int rk817_charge_parse_dt(struct rk817_charger *charge)
 					(flags & OF_GPIO_ACTIVE_LOW) ? 0 : 1;
 			}
 		}
-		#else
-		#ifdef __BATTERY_LOW__
-		if (!of_find_property(np, "bat_low_gpio", &ret)) {
-			DBG("not support battery low\n");
-			pdata->bat_low_pin = 0;
-		} else {
-			pdata->bat_low_pin = of_get_named_gpio_flags(np,
-							"bat_low_gpio",
-							0, &flags);
-			if (gpio_is_valid(pdata->bat_low_pin)) {
-				DBG("support charge led\n");
-				pdata->bat_low_on =
-					(flags & OF_GPIO_ACTIVE_LOW) ? 0 : 1;
-			}
-		}
-		#endif		
-		#endif
 #endif
 	}
 
@@ -1754,7 +1677,7 @@ irq_fail:
 	destroy_workqueue(charge->usb_charger_wq);
 	destroy_workqueue(charge->dc_charger_wq);
 
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGO2)
+#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
 	cancel_delayed_work_sync(&charge->led_work);
 	destroy_workqueue(charge->led_wq);
 #endif
@@ -1842,7 +1765,7 @@ static void rk817_charger_shutdown(struct platform_device *dev)
 	cancel_delayed_work_sync(&charge->irq_work);
 	flush_workqueue(charge->usb_charger_wq);
 	flush_workqueue(charge->dc_charger_wq);
-#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGO2)
+#if defined(CONFIG_ARCH_ROCKCHIP_ODROIDGOA)
 	cancel_delayed_work_sync(&charge->led_work);
 	destroy_workqueue(charge->led_wq);
 #endif

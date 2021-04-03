@@ -188,7 +188,7 @@ static bool fs__env_override(struct fs *fs)
 		return false;
 
 	fs->found = true;
-	strncpy(fs->path, override_path, sizeof(fs->path) - 1);
+	strncpy(fs->path, override_path, sizeof(fs->path));
 	return true;
 }
 

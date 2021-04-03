@@ -123,23 +123,17 @@ extern void cleanup_module(void);
 #define console_initcall(fn)		module_init(fn)
 #define security_initcall(fn)		module_init(fn)
 
-#if __has_attribute(__copy__)
-# define __copy(symbol)                 __attribute__((__copy__(symbol)))
-#else
-# define __copy(symbol)
-#endif
-
 /* Each module must use one module_init(). */
 #define module_init(initfn)					\
 	static inline initcall_t __maybe_unused __inittest(void)		\
 	{ return initfn; }					\
-	int init_module(void) __copy(initfn) __attribute__((alias(#initfn)));
+	int init_module(void) __attribute__((alias(#initfn)));
 
 /* This is only required if you want to be unloadable. */
 #define module_exit(exitfn)					\
 	static inline exitcall_t __maybe_unused __exittest(void)		\
 	{ return exitfn; }					\
-	void cleanup_module(void) __copy(exitfn) __attribute__((alias(#exitfn)));
+	void cleanup_module(void) __attribute__((alias(#exitfn)));
 
 #endif
 
